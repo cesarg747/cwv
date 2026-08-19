@@ -6,7 +6,11 @@
     Pensado para correr en una PC recien formateada, desde PowerShell como
     administrador:
 
-        irm https://raw.githubusercontent.com/USUARIO/pc-setup/main/setup-pc.ps1 | iex
+        irm https://raw.githubusercontent.com/cesarg747/pc-setup/v2/setup-pc.ps1 | iex
+
+    Si winget no esta instalado (caso tipico de Windows 10 LTSC, que no trae
+    Microsoft Store), el script lo instala solo bajando el paquete oficial de
+    Microsoft antes de seguir.
 
     Para agregar o sacar programas, editar UNICAMENTE la lista $Programas de
     mas abajo. El resto del script no hace falta tocarlo.
@@ -27,6 +31,173 @@ $Programas = @(
 # De aca para abajo no hace falta tocar nada
 # ---------------------------------------------------------------------------
 
+# Build minimo que soporta winget: Windows 10 1809. Por debajo de eso no hay
+# forma de instalarlo (winget depende de MSIX y de IsWow64Process2).
+$BuildMinimo = 17763
+
+function Test-Administrador {
+    $id = [Security.Principal.WindowsIdentity]::GetCurrent()
+    return ([Security.Principal.WindowsPrincipal]$id).IsInRole(
+        [Security.Principal.WindowsBuiltInRole]::Administrator)
+}
+
+function Test-Winget {
+    # Al instalar App Installer, el alias de winget aparece en WindowsApps, que
+    # ya esta en el PATH del usuario, pero la sesion actual tiene la copia vieja
+    # del PATH en memoria. Por eso lo recargamos antes de buscar.
+    $env:Path = [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' +
+                [Environment]::GetEnvironmentVariable('Path', 'User')
+    return [bool](Get-Command winget -ErrorAction SilentlyContinue)
+}
+
+function Install-Winget {
+    <#
+        Instala App Installer (winget) bajando los paquetes oficiales desde el
+        repositorio microsoft/winget-cli. Devuelve $true si winget quedo usable.
+
+        Los nombres de los archivos cambian en cada version (el de la licencia
+        lleva un hash adelante), asi que se consultan por API en vez de
+        hardcodearlos.
+    #>
+
+    Write-Host ''
+    Write-Host 'winget no esta instalado. Intento instalarlo automaticamente.' -ForegroundColor Yellow
+    Write-Host ''
+
+    $build = [Environment]::OSVersion.Version.Build
+    if ($build -lt $BuildMinimo) {
+        Write-Host "ERROR: esta PC es build $build y winget necesita $BuildMinimo (Windows 10 1809) o mayor." -ForegroundColor Red
+        Write-Host 'En esta version de Windows winget no se puede instalar. Hay que instalar los programas a mano.' -ForegroundColor Red
+        return $false
+    }
+
+    if (-not (Test-Administrador)) {
+        Write-Host 'ERROR: para instalar winget hace falta PowerShell como administrador.' -ForegroundColor Red
+        Write-Host 'Cerra esta ventana, abri PowerShell con "Ejecutar como administrador" y volve a correr el script.' -ForegroundColor Red
+        return $false
+    }
+
+    # Windows 10 1809 no negocia TLS 1.2 por defecto en .NET, y sin esto las
+    # descargas desde GitHub fallan con "conexion cerrada inesperadamente".
+    try {
+        [Net.ServicePointManager]::SecurityProtocol =
+            [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+    } catch { }
+
+    # La barra de progreso de Invoke-WebRequest en PowerShell 5.1 hace que las
+    # descargas grandes tarden muchisimo mas. Se apaga y se restaura al final.
+    $progresoOriginal = $ProgressPreference
+    $ProgressPreference = 'SilentlyContinue'
+
+    $carpeta = Join-Path $env:TEMP 'winget-bootstrap'
+    New-Item -ItemType Directory -Force -Path $carpeta | Out-Null
+
+    try {
+        Write-Host 'Consultando la ultima version de winget...' -ForegroundColor Cyan
+        $release = Invoke-RestMethod 'https://api.github.com/repos/microsoft/winget-cli/releases/latest' `
+            -Headers @{ 'User-Agent' = 'pc-setup' } -ErrorAction Stop
+
+        Write-Host "Version encontrada: $($release.tag_name)" -ForegroundColor Green
+
+        $aBundle  = $release.assets | Where-Object { $_.name -like '*.msixbundle' } | Select-Object -First 1
+        $aDeps    = $release.assets | Where-Object { $_.name -eq 'DesktopAppInstaller_Dependencies.zip' } | Select-Object -First 1
+        $aLicense = $release.assets | Where-Object { $_.name -like '*_License1.xml' } | Select-Object -First 1
+
+        if (-not $aBundle -or -not $aDeps) {
+            Write-Host 'ERROR: no encontre los archivos esperados en la release de winget.' -ForegroundColor Red
+            return $false
+        }
+
+        # Arquitectura de la PC, para sacar del zip solo los appx que sirven.
+        switch ($env:PROCESSOR_ARCHITECTURE) {
+            'AMD64' { $arch = 'x64' }
+            'ARM64' { $arch = 'arm64' }
+            default { $arch = 'x86' }
+        }
+        Write-Host "Arquitectura detectada: $arch" -ForegroundColor Green
+
+        $rutaBundle  = Join-Path $carpeta $aBundle.name
+        $rutaDeps    = Join-Path $carpeta $aDeps.name
+        $rutaLicense = if ($aLicense) { Join-Path $carpeta $aLicense.name } else { $null }
+
+        $descargas = @(
+            @{ Url = $aDeps.browser_download_url;   Destino = $rutaDeps;   Nombre = 'dependencias';  Tam = $aDeps.size }
+            @{ Url = $aBundle.browser_download_url; Destino = $rutaBundle; Nombre = 'App Installer'; Tam = $aBundle.size }
+        )
+        if ($aLicense) {
+            $descargas += @{ Url = $aLicense.browser_download_url; Destino = $rutaLicense; Nombre = 'licencia'; Tam = $aLicense.size }
+        }
+
+        foreach ($d in $descargas) {
+            $mb = [math]::Round($d.Tam / 1MB, 1)
+            Write-Host "Descargando $($d.Nombre) ($mb MB)... esto puede tardar varios minutos." -ForegroundColor Cyan
+            Invoke-WebRequest -Uri $d.Url -OutFile $d.Destino -UseBasicParsing -ErrorAction Stop
+        }
+
+        Write-Host 'Descomprimiendo dependencias...' -ForegroundColor Cyan
+        $carpetaDeps = Join-Path $carpeta 'deps'
+        if (Test-Path $carpetaDeps) { Remove-Item $carpetaDeps -Recurse -Force }
+        Expand-Archive -Path $rutaDeps -DestinationPath $carpetaDeps -Force
+
+        $appxDeps = Get-ChildItem -Path (Join-Path $carpetaDeps $arch) -Filter '*.appx' -ErrorAction Stop
+
+        foreach ($dep in $appxDeps) {
+            Write-Host "  Instalando dependencia $($dep.Name)..." -ForegroundColor DarkGray
+            try {
+                Add-AppxPackage -Path $dep.FullName -ErrorAction Stop
+            }
+            catch {
+                # Si ya hay una version igual o mas nueva, Windows tira error.
+                # No es un problema: la dependencia esta cubierta igual.
+                Write-Host "  (se omite: ya hay una version igual o mas nueva)" -ForegroundColor DarkGray
+            }
+        }
+
+        Write-Host 'Instalando App Installer (winget)...' -ForegroundColor Cyan
+        Add-AppxPackage -Path $rutaBundle -ErrorAction Stop
+
+        # Provisionar deja winget disponible tambien para los usuarios que se
+        # creen despues. Es lo que corresponde en una PC que se va a entregar.
+        if ($rutaLicense) {
+            try {
+                Add-AppxProvisionedPackage -Online -PackagePath $rutaBundle `
+                    -DependencyPackagePath ($appxDeps.FullName) -LicensePath $rutaLicense `
+                    -ErrorAction Stop | Out-Null
+                Write-Host 'winget provisionado para todos los usuarios.' -ForegroundColor Green
+            }
+            catch {
+                Write-Host 'Aviso: quedo instalado para este usuario, pero no se pudo provisionar para todos.' -ForegroundColor Yellow
+            }
+        }
+
+        # El alias de winget tarda unos segundos en registrarse.
+        for ($intento = 1; $intento -le 10; $intento++) {
+            if (Test-Winget) {
+                Write-Host 'winget instalado correctamente.' -ForegroundColor Green
+                return $true
+            }
+            Start-Sleep -Seconds 2
+        }
+
+        Write-Host 'winget se instalo pero todavia no responde en esta ventana.' -ForegroundColor Yellow
+        Write-Host 'Cerra PowerShell, abrilo de nuevo como administrador y volve a correr el script.' -ForegroundColor Yellow
+        return $false
+    }
+    catch {
+        Write-Host "ERROR instalando winget: $($_.Exception.Message)" -ForegroundColor Red
+        Write-Host ''
+        Write-Host 'Alternativa a mano:' -ForegroundColor Yellow
+        Write-Host '  1) Bajar https://github.com/microsoft/winget-cli/releases/latest'
+        Write-Host '     (el .msixbundle y DesktopAppInstaller_Dependencies.zip)'
+        Write-Host '  2) Instalar primero los .appx de tu arquitectura y despues el .msixbundle'
+        Write-Host ''
+        return $false
+    }
+    finally {
+        $ProgressPreference = $progresoOriginal
+    }
+}
+
 function Invoke-SetupPC {
 
     Write-Host ''
@@ -35,34 +206,20 @@ function Invoke-SetupPC {
     Write-Host '===========================================' -ForegroundColor Cyan
     Write-Host ''
 
-    # --- 1. Verificar que winget exista -----------------------------------
-    if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
-        Write-Host 'ERROR: winget no esta instalado en esta PC.' -ForegroundColor Red
-        Write-Host ''
-        Write-Host 'winget viene dentro del "Instalador de aplicacion" (App Installer).' -ForegroundColor Yellow
-        Write-Host 'Para instalarlo tenes dos opciones:' -ForegroundColor Yellow
-        Write-Host ''
-        Write-Host '  1) Microsoft Store -> buscar "Instalador de aplicacion" -> Instalar/Actualizar'
-        Write-Host '     (link directo: https://apps.microsoft.com/detail/9nblggh4nns1)'
-        Write-Host ''
-        Write-Host '  2) Descargar el .msixbundle desde:'
-        Write-Host '     https://github.com/microsoft/winget-cli/releases/latest'
-        Write-Host '     y ejecutarlo con doble clic.'
-        Write-Host ''
-        Write-Host 'Despues de instalarlo, cerra y volve a abrir PowerShell y corre este script otra vez.' -ForegroundColor Yellow
-        Write-Host ''
-        return
+    # --- 1. Verificar winget, y si falta instalarlo ------------------------
+    if (-not (Test-Winget)) {
+        if (-not (Install-Winget)) {
+            Write-Host 'No se puede continuar sin winget.' -ForegroundColor Red
+            Write-Host ''
+            return
+        }
     }
 
     $version = (winget --version) 2>$null
     Write-Host "winget detectado (version $version)" -ForegroundColor Green
 
     # --- 2. Avisar si no se corre como administrador -----------------------
-    $identidad = [Security.Principal.WindowsIdentity]::GetCurrent()
-    $esAdmin = ([Security.Principal.WindowsPrincipal]$identidad).IsInRole(
-        [Security.Principal.WindowsBuiltInRole]::Administrator)
-
-    if (-not $esAdmin) {
+    if (-not (Test-Administrador)) {
         Write-Host ''
         Write-Host 'AVISO: no estas corriendo PowerShell como administrador.' -ForegroundColor Yellow
         Write-Host 'Algunas instalaciones pueden fallar o pedir confirmacion (UAC).' -ForegroundColor Yellow
