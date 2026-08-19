@@ -54,6 +54,16 @@ Para averiguar el ID de un programa:
 winget search "nombre del programa"
 ```
 
+## Versión fija
+
+La URL de arriba apunta a `main`: siempre trae la última versión del script.
+Si querés una URL que no cambie aunque se edite `main` (por ejemplo para usar en
+PCs de clientes), usá el tag `v1`:
+
+```powershell
+irm https://raw.githubusercontent.com/cesarg747/pc-setup/v1/setup-pc.ps1 | iex
+```
+
 ## Notas
 
 - Los programas que ya estén instalados se marcan como *ya instalado* y no se tocan.
