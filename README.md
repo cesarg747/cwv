@@ -8,7 +8,7 @@ programas básicos de una sola pasada usando [winget](https://learn.microsoft.co
 Abrir **PowerShell como administrador** y ejecutar:
 
 ```powershell
-irm https://raw.githubusercontent.com/USUARIO/pc-setup/main/setup-pc.ps1 | iex
+irm https://raw.githubusercontent.com/cesarg747/pc-setup/main/setup-pc.ps1 | iex
 ```
 
 Si `irm | iex` da error de política de ejecución, correr antes:
