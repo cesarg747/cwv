@@ -1,4 +1,4 @@
-# pc-setup
+# cwv
 
 Script de PowerShell para dejar lista una PC recién formateada: instala los
 programas básicos de una sola pasada usando [winget](https://learn.microsoft.com/windows/package-manager/).
@@ -11,7 +11,7 @@ el script lo instala solo antes de seguir.
 Abrir **PowerShell como administrador** y ejecutar:
 
 ```powershell
-irm https://raw.githubusercontent.com/cesarg747/pc-setup/main/setup-pc.ps1 | iex
+irm https://raw.githubusercontent.com/cesarg747/cwv/main/setup.ps1 | iex
 ```
 
 Si `irm | iex` da error de política de ejecución, correr antes:
@@ -42,7 +42,7 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 ## Agregar o sacar programas
 
 Editar **solamente** la lista `$Programas` que está arriba de todo en
-[`setup-pc.ps1`](setup-pc.ps1):
+[`setup.ps1`](setup.ps1):
 
 ```powershell
 $Programas = @(
@@ -95,8 +95,22 @@ Si querés una URL que no cambie aunque se edite `main` (por ejemplo para usar e
 PCs de clientes), usá un tag:
 
 ```powershell
-irm https://raw.githubusercontent.com/cesarg747/pc-setup/v2/setup-pc.ps1 | iex
+irm https://raw.githubusercontent.com/cesarg747/cwv/v3/setup.ps1 | iex
 ```
+
+### Ojo con los tags viejos
+
+Hasta `v2` este repo se llamaba `pc-setup` y el script `setup-pc.ps1`. Los tags
+apuntan a commits, y en esos commits el archivo todavia tiene el nombre viejo,
+asi que hay que pedirlo como estaba:
+
+| Tag | URL que funciona |
+|-----|------------------|
+| `v1` | `.../cwv/v1/setup-pc.ps1` — version que **no** instala winget |
+| `v2` | `.../cwv/v2/setup-pc.ps1` — ya instala winget |
+| `v3` | `.../cwv/v3/setup.ps1` — nombres nuevos |
+
+De `v3` en adelante el nombre es siempre `setup.ps1`.
 
 ## Notas
 

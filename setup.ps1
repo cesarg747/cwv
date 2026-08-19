@@ -6,7 +6,7 @@
     Pensado para correr en una PC recien formateada, desde PowerShell como
     administrador:
 
-        irm https://raw.githubusercontent.com/cesarg747/pc-setup/v2/setup-pc.ps1 | iex
+        irm https://raw.githubusercontent.com/cesarg747/cwv/v3/setup.ps1 | iex
 
     Si winget no esta instalado (caso tipico de Windows 10 LTSC, que no trae
     Microsoft Store), el script lo instala solo bajando el paquete oficial de
@@ -95,7 +95,7 @@ function Install-Winget {
     try {
         Write-Host 'Consultando la ultima version de winget...' -ForegroundColor Cyan
         $release = Invoke-RestMethod 'https://api.github.com/repos/microsoft/winget-cli/releases/latest' `
-            -Headers @{ 'User-Agent' = 'pc-setup' } -ErrorAction Stop
+            -Headers @{ 'User-Agent' = 'cwv' } -ErrorAction Stop
 
         Write-Host "Version encontrada: $($release.tag_name)" -ForegroundColor Green
 
