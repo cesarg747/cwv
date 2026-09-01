@@ -1,7 +1,9 @@
 # cwv
 
-Script de PowerShell para dejar lista una PC recién formateada: instala los
-programas básicos de una sola pasada usando [winget](https://learn.microsoft.com/windows/package-manager/).
+Script de PowerShell para dejar lista una PC recién formateada. Muestra un menú
+y desde ahí instala los programas básicos usando
+[winget](https://learn.microsoft.com/windows/package-manager/), abre las Opciones
+de rendimiento y abre la activación de Windows.
 
 Si winget no está (caso típico de **Windows 10 LTSC**, que no trae Microsoft Store),
 el script lo instala solo antes de seguir.
@@ -11,7 +13,7 @@ el script lo instala solo antes de seguir.
 Abrir **PowerShell como administrador** y ejecutar:
 
 ```powershell
-irm https://raw.githubusercontent.com/cesarg747/cwv/main/setup.ps1 | iex
+irm https://cesarg747.github.io/cwv/setup.ps1 | iex
 ```
 
 Si `irm | iex` da error de política de ejecución, correr antes:
@@ -20,18 +22,41 @@ Si `irm | iex` da error de política de ejecución, correr antes:
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 ```
 
-## Qué hace
+## El menú
 
-1. Verifica que `winget` esté instalado.
-2. Si no está, **lo instala automáticamente** (ver abajo). Si tampoco se puede,
-   explica por qué y corta.
-3. Avisa si PowerShell no se está ejecutando como administrador.
-4. Instala cada programa de la lista, uno por uno, en modo silencioso.
-5. Si una instalación falla, lo informa y **sigue con las siguientes**.
-6. Al final muestra un resumen de qué se instaló, qué ya estaba y qué falló,
+```
+===========================================
+  Setup de PC
+===========================================
+
+  1) Instalar programas (Chrome, VLC, WinRAR)
+  2) Abrir Opciones de rendimiento
+  3) Abrir la activación de Windows
+  0) Salir
+
+Elegi una opcion:
+```
+
+El menú vuelve a aparecer después de cada acción, así que se pueden encadenar
+varias sin volver a correr el script. Si una opción falla, el menú sigue en pie.
+
+| Opción | Qué hace |
+|--------|----------|
+| 1 | Instala uno por uno los programas de la lista. Si winget falta, lo instala primero. |
+| 2 | Abre `SystemPropertiesPerformance.exe`: el cuadro de Propiedades del sistema → Opciones avanzadas → Rendimiento → Configuración. |
+| 3 | Abre `ms-settings:activation`, para cargar la clave de producto. |
+| 0 | Sale. |
+
+## Instalación de programas (opción 1)
+
+1. Verifica que `winget` esté instalado, y si no lo instala (ver más abajo).
+2. Avisa si PowerShell no se está ejecutando como administrador.
+3. Instala cada programa de la lista, uno por uno, en modo silencioso.
+4. Si una instalación falla, lo informa y **sigue con las siguientes**.
+5. Al final muestra un resumen de qué se instaló, qué ya estaba y qué falló,
    con el comando exacto para reintentar los que fallaron.
 
-## Programas incluidos
+### Programas incluidos
 
 | Programa | ID de winget |
 |----------|--------------|
@@ -39,7 +64,7 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 | VLC Media Player | `VideoLAN.VLC` |
 | WinRAR | `RARLab.WinRAR` |
 
-## Agregar o sacar programas
+### Agregar o sacar programas
 
 Editar **solamente** la lista `$Programas` que está arriba de todo en
 [`setup.ps1`](setup.ps1):
@@ -58,6 +83,22 @@ Para averiguar el ID de un programa:
 ```powershell
 winget search "nombre del programa"
 ```
+
+## Agregar opciones al menú
+
+Igual que con los programas: hay una lista `$Menu` arriba de todo. `Accion` es
+un bloque de código entre llaves, así que puede ser cualquier cosa.
+
+```powershell
+$Menu = @(
+    @{ Tecla = '1'; Titulo = 'Instalar programas (Chrome, VLC, WinRAR)'; Accion = { Install-Programas } }
+    @{ Tecla = '2'; Titulo = 'Abrir Opciones de rendimiento';            Accion = { Open-OpcionesRendimiento } }
+    @{ Tecla = '3'; Titulo = 'Abrir la activacion de Windows';           Accion = { Open-Activacion } }
+    @{ Tecla = '4'; Titulo = 'Abrir el Administrador de discos';         Accion = { Start-Process 'diskmgmt.msc' } }
+)
+```
+
+La opción `0) Salir` la agrega el menú solo, no hace falta ponerla en la lista.
 
 ## Windows 10 LTSC (y cualquier PC sin winget)
 
@@ -88,27 +129,33 @@ Para saber qué build tenés:
 [Environment]::OSVersion.Version.Build
 ```
 
-## Versión fija
+## Las URLs
 
-La URL de arriba apunta a `main`: siempre trae la última versión del script.
-Si querés una URL que no cambie aunque se edite `main` (por ejemplo para usar en
-PCs de clientes), usá un tag:
+| URL | Largo | Qué trae |
+|-----|-------|----------|
+| `https://cesarg747.github.io/cwv/setup.ps1` | 41 | siempre lo último de `main` |
+| `https://github.com/cesarg747/cwv/raw/main/setup.ps1` | 51 | lo mismo, sin pasar por Pages |
+| `https://github.com/cesarg747/cwv/raw/v4/setup.ps1` | 49 | la versión `v4`, congelada |
 
-```powershell
-irm https://raw.githubusercontent.com/cesarg747/cwv/v3/setup.ps1 | iex
-```
+La de GitHub Pages es la corta y la de todos los días. Sirve la rama `main`, o sea
+lo último que haya. **Pages no entiende de tags**: en su URL no hay ningún tramo
+donde poner la versión. Para congelar una versión hay que usar la de `raw` con un tag.
+
+Pages tarda alrededor de un minuto en republicar después de cada push. Si editás
+el script y corrés la URL corta enseguida, puede que todavía te dé la versión anterior.
 
 ### Ojo con los tags viejos
 
 Hasta `v2` este repo se llamaba `pc-setup` y el script `setup-pc.ps1`. Los tags
-apuntan a commits, y en esos commits el archivo todavia tiene el nombre viejo,
-asi que hay que pedirlo como estaba:
+apuntan a commits, y en esos commits el archivo todavía tiene el nombre viejo,
+así que hay que pedirlo como estaba:
 
 | Tag | URL que funciona |
 |-----|------------------|
-| `v1` | `.../cwv/v1/setup-pc.ps1` — version que **no** instala winget |
-| `v2` | `.../cwv/v2/setup-pc.ps1` — ya instala winget |
-| `v3` | `.../cwv/v3/setup.ps1` — nombres nuevos |
+| `v1` | `.../cwv/raw/v1/setup-pc.ps1` — versión que **no** instala winget |
+| `v2` | `.../cwv/raw/v2/setup-pc.ps1` — ya instala winget |
+| `v3` | `.../cwv/raw/v3/setup.ps1` — nombres nuevos, sin menú |
+| `v4` | `.../cwv/raw/v4/setup.ps1` — con menú |
 
 De `v3` en adelante el nombre es siempre `setup.ps1`.
 

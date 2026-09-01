@@ -6,7 +6,10 @@
     Pensado para correr en una PC recien formateada, desde PowerShell como
     administrador:
 
-        irm https://raw.githubusercontent.com/cesarg747/cwv/v3/setup.ps1 | iex
+        irm https://cesarg747.github.io/cwv/setup.ps1 | iex
+
+    Muestra un menu: 1 instala los programas, 2 abre las Opciones de
+    rendimiento, 3 abre la activacion de Windows, 0 sale.
 
     Si winget no esta instalado (caso tipico de Windows 10 LTSC, que no trae
     Microsoft Store), el script lo instala solo bajando el paquete oficial de
@@ -25,6 +28,21 @@ $Programas = @(
     @{ Id = 'Google.Chrome'; Nombre = 'Google Chrome' }
     @{ Id = 'VideoLAN.VLC';  Nombre = 'VLC Media Player' }
     @{ Id = 'RARLab.WinRAR'; Nombre = 'WinRAR' }
+)
+
+# ---------------------------------------------------------------------------
+# OPCIONES DEL MENU  <-- y esto
+#
+# Tecla   = lo que hay que apretar
+# Titulo  = lo que se muestra en pantalla
+# Accion  = el bloque de codigo que se ejecuta, entre llaves
+#
+# La opcion 0 (Salir) la agrega el menu solo, no hace falta ponerla aca.
+# ---------------------------------------------------------------------------
+$Menu = @(
+    @{ Tecla = '1'; Titulo = 'Instalar programas (Chrome, VLC, WinRAR)'; Accion = { Install-Programas } }
+    @{ Tecla = '2'; Titulo = 'Abrir Opciones de rendimiento';            Accion = { Open-OpcionesRendimiento } }
+    @{ Tecla = '3'; Titulo = 'Abrir la activacion de Windows';           Accion = { Open-Activacion } }
 )
 
 # ---------------------------------------------------------------------------
@@ -198,12 +216,10 @@ function Install-Winget {
     }
 }
 
-function Invoke-SetupPC {
+function Install-Programas {
 
     Write-Host ''
-    Write-Host '===========================================' -ForegroundColor Cyan
-    Write-Host '  Setup de PC - instalacion via winget' -ForegroundColor Cyan
-    Write-Host '===========================================' -ForegroundColor Cyan
+    Write-Host '--- Instalacion de programas ---------------' -ForegroundColor Cyan
     Write-Host ''
 
     # --- 1. Verificar winget, y si falta instalarlo ------------------------
@@ -330,4 +346,78 @@ function Invoke-SetupPC {
     Write-Host ''
 }
 
-Invoke-SetupPC
+function Open-OpcionesRendimiento {
+    # SystemPropertiesPerformance.exe abre directo el cuadro "Opciones de
+    # rendimiento", el que esta en Propiedades del sistema > Opciones
+    # avanzadas > Rendimiento > Configuracion.
+    Write-Host ''
+    Write-Host 'Abriendo Opciones de rendimiento...' -ForegroundColor Cyan
+    try {
+        Start-Process 'SystemPropertiesPerformance.exe' -ErrorAction Stop
+        Write-Host 'Listo: la ventana se abrio aparte de esta consola.' -ForegroundColor Green
+    }
+    catch {
+        Write-Host "ERROR: no se pudo abrir ($($_.Exception.Message))" -ForegroundColor Red
+    }
+    Write-Host ''
+}
+
+function Open-Activacion {
+    Write-Host ''
+    Write-Host 'Abriendo la configuracion de activacion de Windows...' -ForegroundColor Cyan
+    try {
+        Start-Process 'ms-settings:activation' -ErrorAction Stop
+        Write-Host 'Listo: desde ahi se carga la clave de producto.' -ForegroundColor Green
+    }
+    catch {
+        Write-Host "ERROR: no se pudo abrir ($($_.Exception.Message))" -ForegroundColor Red
+    }
+    Write-Host ''
+}
+
+function Invoke-Menu {
+    while ($true) {
+        Write-Host ''
+        Write-Host '===========================================' -ForegroundColor Cyan
+        Write-Host '  Setup de PC' -ForegroundColor Cyan
+        Write-Host '===========================================' -ForegroundColor Cyan
+        Write-Host ''
+
+        foreach ($op in $Menu) {
+            Write-Host ("  {0}) {1}" -f $op.Tecla, $op.Titulo)
+        }
+        Write-Host '  0) Salir'
+        Write-Host ''
+
+        $tecla = (Read-Host 'Elegi una opcion').Trim()
+
+        if ($tecla -eq '0') {
+            Write-Host ''
+            Write-Host 'Chau.' -ForegroundColor Cyan
+            Write-Host ''
+            return
+        }
+
+        $elegida = $Menu | Where-Object { $_.Tecla -eq $tecla } | Select-Object -First 1
+
+        if (-not $elegida) {
+            Write-Host ''
+            Write-Host "Opcion '$tecla' invalida. Proba de nuevo." -ForegroundColor Yellow
+            continue
+        }
+
+        try {
+            & $elegida.Accion
+        }
+        catch {
+            # Que un error dentro de una opcion no tire abajo el menu entero.
+            Write-Host ''
+            Write-Host "ERROR en '$($elegida.Titulo)': $($_.Exception.Message)" -ForegroundColor Red
+            Write-Host ''
+        }
+
+        Read-Host 'Presiona Enter para volver al menu' | Out-Null
+    }
+}
+
+Invoke-Menu
